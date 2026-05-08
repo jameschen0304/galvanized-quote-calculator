@@ -277,6 +277,20 @@
       return {};
     }
 
+    function renderStoredStatus() {
+      const all = getStoredParsedData();
+      const keys = ["galvanized", "aluzinc", "zincMagnesium"].filter((k) => all[k]);
+      if (!keys.length) {
+        el.parseSummary.textContent = "当前未检测到已导入数据，使用内置示例。";
+        return;
+      }
+      const meta = all.__meta || {};
+      const source = meta.fileName ? `来源：${meta.fileName}` : "来源：本地已导入数据";
+      const time = meta.importedAt ? `，时间：${meta.importedAt}` : "";
+      const names = keys.map((k) => materialNames[k]).join("、");
+      el.parseSummary.textContent = `已自动加载本地导入数据（${names}）。${source}${time}`;
+    }
+
     function parseLines(raw, tableName) {
       const rows = raw
         .split(/\r?\n/)
@@ -538,10 +552,14 @@
           throw new Error("未识别到可用 sheet（需包含 镀锌/镀铝锌/锌铝镁 关键词）");
         }
 
+        all.__meta = {
+          fileName: file.name,
+          importedAt: new Date().toLocaleString()
+        };
         localStorage.setItem(STORAGE_KEY, JSON.stringify(all));
         el.tableError.style.color = "#166534";
         el.tableError.textContent = "导入成功。";
-        el.parseSummary.textContent = lines.join("；");
+        el.parseSummary.textContent = `${lines.join("；")}。已自动保存，下次打开直接可用。`;
         calc();
       } catch (err) {
         el.tableError.style.color = "#b00020";
@@ -553,7 +571,7 @@
       localStorage.removeItem(STORAGE_KEY);
       el.tableError.style.color = "#166534";
       el.tableError.textContent = "已清除导入数据，回到内置示例。";
-      el.parseSummary.textContent = "";
+      renderStoredStatus();
       calc();
     }
 
@@ -570,8 +588,6 @@
 
     function calc() {
       el.formError.textContent = "";
-      el.tableError.textContent = "";
-      el.tableError.style.color = "#b00020";
 
       const base = Number(el.basePrice.value);
       const t = Number(el.thickness.value);
@@ -600,6 +616,7 @@
       }
     }
 
+    renderStoredStatus();
     calc();
     el.materialType.addEventListener("change", () => {
       calc();
