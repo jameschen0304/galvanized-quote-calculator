@@ -415,6 +415,26 @@
       return Math.max(...fees);
     }
 
+    function pickMatrixCombinedFee(thickness, zinc, matrixRows, zincHeaders) {
+      const tValues = matrixRows.map((r) => r.thickness).sort((a, b) => a - b);
+      const zValues = [...zincHeaders].sort((a, b) => a - b);
+      const tCandidates = pickNeighborValues(thickness, tValues);
+      const zCandidates = pickNeighborValues(zinc, zValues);
+
+      const fees = [];
+      for (const t of tCandidates) {
+        const row = matrixRows.find((r) => r.thickness === t);
+        if (!row) continue;
+        for (const z of zCandidates) {
+          const zi = zValues.indexOf(z);
+          const fee = row.fees[zi];
+          if (typeof fee === "number" && Number.isFinite(fee)) fees.push(fee);
+        }
+      }
+      if (!fees.length) throw new Error("组距矩阵没有匹配到可用加价值");
+      return Math.max(...fees);
+    }
+
     function parseWidthRuleString(text) {
       const clean = String(text).replace(/\s+/g, "");
       const mRange = clean.match(/^(\d+)-(\d+)\+(-?\d+(?:\.\d+)?)$/);
@@ -641,7 +661,9 @@
         // 厚度优先用表中明确规则（如 0.5+160），未识别到时再退回矩阵推导
         const thicknessSource = data.thicknessRules.length ? data.thicknessRules : feeTables.thicknessRules;
         const thkFee = pickPointFee(t, thicknessSource, "厚度");
-        const zincFee = pickPointFee(z, feeTables.zincRules, "锌层");
+        // 锌层加价按“矩阵总加价 - 厚度加价”计算，更贴近原表拆分方式
+        const combinedFee = pickMatrixCombinedFee(t, z, data.rows, data.zincHeaders);
+        const zincFee = combinedFee - thkFee;
         const wFee = pickFee(w, data.widthRules, "宽度");
 
         const total = base + thkFee + zincFee + wFee;
