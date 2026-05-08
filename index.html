@@ -462,10 +462,19 @@
 
     function parseThicknessRuleString(text) {
       const clean = String(text).replace(/\s+/g, "");
-      const m = clean.match(/^(\d+(?:\.\d+)?)\+(-?\d+(?:\.\d+)?)$/);
-      if (!m) return null;
-      const value = Number(m[1]);
-      const fee = Number(m[2]);
+      let m = clean.match(/^(\d+(?:\.\d+)?)\+(-?\d+(?:\.\d+)?)$/);
+      let value;
+      let fee;
+      if (m) {
+        value = Number(m[1]);
+        fee = Number(m[2]);
+      } else {
+        // 兼容 "0.55-20" 这类直接减价写法（非区间）
+        m = clean.match(/^(\d+(?:\.\d+)?)-(\d+(?:\.\d+)?)$/);
+        if (!m) return null;
+        value = Number(m[1]);
+        fee = -Number(m[2]);
+      }
       if (!Number.isFinite(value) || !Number.isFinite(fee)) return null;
       // 厚度规则只接受合理厚度范围，避免把宽度规则误识别进来
       if (value < 0.1 || value > 5) return null;
