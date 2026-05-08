@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>镀锌报价计算器</title>
+  <title>钢材报价计算器</title>
   <style>
     :root {
       color-scheme: light;
@@ -118,13 +118,20 @@
 <body>
   <div class="wrap">
     <div class="card">
-      <h1>镀锌报价计算器（简版）</h1>
+      <h1>钢材报价计算器（简版）</h1>
       <p class="muted">规则：最终报价 = 基价 + 厚度加价 + 锌层加价 + 宽度加价；若输入落在两档之间，取加价更高的一档。</p>
     </div>
 
     <div class="card">
       <h2>规格输入</h2>
       <div class="grid">
+        <label>品类
+          <select id="materialType">
+            <option value="galvanized">镀锌</option>
+            <option value="aluzinc">镀铝锌</option>
+            <option value="zincMagnesium">锌铝镁</option>
+          </select>
+        </label>
         <label>基价（元/吨）
           <input id="basePrice" type="number" step="0.01" value="4200" />
         </label>
@@ -146,6 +153,7 @@
 
     <div class="card">
       <h2>加价表维护（可手动改）</h2>
+      <p class="muted">当前编辑品类：<span id="currentMaterialName">镀锌</span></p>
       <p class="muted">每行格式：最小值,最大值,加价。示例：0.35,0.39,120。最后一行可用很大值做上限（如 9999）。</p>
       <label>厚度加价表（mm）
         <textarea id="thicknessTable"></textarea>
@@ -181,37 +189,89 @@
   </div>
 
   <script>
-    const STORAGE_KEY = "gz_quote_tables_v1";
+    const STORAGE_KEY = "steel_quote_tables_v2";
 
-    const defaults = {
-      thickness: [
-        "0.30,0.35,180",
-        "0.35,0.40,120",
-        "0.40,0.50,60",
-        "0.50,9999,0"
-      ].join("\n"),
-      zinc: [
-        "0,80,0",
-        "80,120,120",
-        "120,180,220",
-        "180,9999,320"
-      ].join("\n"),
-      width: [
-        "0,900,200",
-        "900,1000,150",
-        "1000,1150,120",
-        "1150,1201,100",
-        "1201,1221,30",
-        "1221,1250,100",
-        "1250,9999,0"
-      ].join("\n")
+    const materialNames = {
+      galvanized: "镀锌",
+      aluzinc: "镀铝锌",
+      zincMagnesium: "锌铝镁"
+    };
+
+    const defaultsByMaterial = {
+      galvanized: {
+        thickness: [
+          "0.30,0.35,180",
+          "0.35,0.40,120",
+          "0.40,0.50,60",
+          "0.50,9999,0"
+        ].join("\n"),
+        zinc: [
+          "0,80,0",
+          "80,120,120",
+          "120,180,220",
+          "180,9999,320"
+        ].join("\n"),
+        width: [
+          "0,900,200",
+          "900,1000,150",
+          "1000,1150,120",
+          "1150,1201,100",
+          "1201,1221,30",
+          "1221,1250,100",
+          "1250,9999,0"
+        ].join("\n")
+      },
+      aluzinc: {
+        thickness: [
+          "0.20,0.30,220",
+          "0.30,0.40,140",
+          "0.40,0.60,70",
+          "0.60,9999,0"
+        ].join("\n"),
+        zinc: [
+          "0,80,0",
+          "80,120,100",
+          "120,180,190",
+          "180,9999,280"
+        ].join("\n"),
+        width: [
+          "0,900,180",
+          "900,1000,140",
+          "1000,1200,90",
+          "1200,1250,40",
+          "1250,9999,0"
+        ].join("\n")
+      },
+      zincMagnesium: {
+        thickness: [
+          "0.30,0.35,200",
+          "0.35,0.45,130",
+          "0.45,0.60,60",
+          "0.60,9999,0"
+        ].join("\n"),
+        zinc: [
+          "0,80,0",
+          "80,120,110",
+          "120,180,210",
+          "180,9999,300"
+        ].join("\n"),
+        width: [
+          "0,900,160",
+          "900,1000,130",
+          "1000,1200,80",
+          "1200,1250,30",
+          "1250,9999,0"
+        ].join("\n")
+      }
     };
 
     const el = {
+      materialType: document.getElementById("materialType"),
       basePrice: document.getElementById("basePrice"),
       thickness: document.getElementById("thickness"),
       zinc: document.getElementById("zinc"),
       width: document.getElementById("width"),
+      currentMaterialName: document.getElementById("currentMaterialName"),
       thkTable: document.getElementById("thicknessTable"),
       zincTable: document.getElementById("zincTable"),
       widthTable: document.getElementById("widthTable"),
@@ -227,18 +287,31 @@
       widthOut: document.getElementById("widthOut")
     };
 
-    function loadTablesToInputs() {
-      let source = defaults;
+    function getStoredTables() {
       try {
         const saved = localStorage.getItem(STORAGE_KEY);
         if (saved) {
           const parsed = JSON.parse(saved);
-          if (parsed.thickness && parsed.zinc && parsed.width) source = parsed;
+          if (parsed && typeof parsed === "object") {
+            return parsed;
+          }
         }
-      } catch (_) {}
+      } catch (_) {
+        return {};
+      }
+      return {};
+    }
+
+    function loadTablesToInputs() {
+      const material = el.materialType.value;
+      const stored = getStoredTables();
+      const fallback = defaultsByMaterial[material];
+      const source = stored[material] || fallback;
+
       el.thkTable.value = source.thickness;
       el.zincTable.value = source.zinc;
       el.widthTable.value = source.width;
+      el.currentMaterialName.textContent = materialNames[material] || "";
     }
 
     function parseLines(raw, tableName) {
@@ -304,16 +377,21 @@
       el.tableError.textContent = "";
       try {
         readTables();
+        const material = el.materialType.value;
+        const allSaved = getStoredTables();
+
+        allSaved[material] = {
+          thickness: el.thkTable.value.trim(),
+          zinc: el.zincTable.value.trim(),
+          width: el.widthTable.value.trim()
+        };
+
         localStorage.setItem(
           STORAGE_KEY,
-          JSON.stringify({
-            thickness: el.thkTable.value.trim(),
-            zinc: el.zincTable.value.trim(),
-            width: el.widthTable.value.trim()
-          })
+          JSON.stringify(allSaved)
         );
         el.tableError.style.color = "#166534";
-        el.tableError.textContent = "已保存。";
+        el.tableError.textContent = `已保存${materialNames[material]}加价表。`;
       } catch (err) {
         el.tableError.style.color = "#b00020";
         el.tableError.textContent = err.message;
@@ -321,12 +399,13 @@
     }
 
     function resetTables() {
-      el.thkTable.value = defaults.thickness;
-      el.zincTable.value = defaults.zinc;
-      el.widthTable.value = defaults.width;
-      localStorage.removeItem(STORAGE_KEY);
+      const material = el.materialType.value;
+      const allSaved = getStoredTables();
+      delete allSaved[material];
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(allSaved));
+      loadTablesToInputs();
       el.tableError.style.color = "#166534";
-      el.tableError.textContent = "已恢复示例数据。";
+      el.tableError.textContent = `已恢复${materialNames[material]}示例数据。`;
     }
 
     function calc() {
@@ -369,6 +448,10 @@
 
     loadTablesToInputs();
     calc();
+    el.materialType.addEventListener("change", () => {
+      loadTablesToInputs();
+      calc();
+    });
     el.calcBtn.addEventListener("click", calc);
     el.saveBtn.addEventListener("click", saveTables);
     el.resetBtn.addEventListener("click", resetTables);
