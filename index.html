@@ -161,7 +161,7 @@
       </div>
       <div class="hint">
         - 支持：镀锌 / 镀铝锌 / 锌铝镁 三个 sheet 自动识别。<br />
-        - 组距=厚度与锌层在矩阵交叉点的加价；宽度按规则字符串解析（如 900-970+150、1000+0）。<br />
+        - 厚度加价单独计算；锌层加价取厚度与锌层在矩阵交叉点的加价；宽度按规则字符串解析（如 900-970+150、1000+0）。<br />
         - 若输入落在两档之间，按你要求取加价更高的值。
       </div>
       <div class="error" id="tableError"></div>
@@ -173,8 +173,8 @@
       <div class="result" id="resultBox">
         <div>最终报价（元/吨）：<span class="price" id="finalPrice">-</span></div>
         <div>基价：<span id="baseOut">-</span></div>
-        <div>组距加价（厚度×锌层交叉）：<span id="thkOut">-</span></div>
-        <div>锌层加价：<span id="zincOut">0.00</span></div>
+        <div>厚度加价：<span id="thkOut">-</span></div>
+        <div>锌层加价（交叉点）：<span id="zincOut">-</span></div>
         <div>宽度加价：<span id="widthOut">-</span></div>
       </div>
     </div>
@@ -657,14 +657,19 @@
 
       try {
         const data = getCurrentMaterialData();
-        const matrixFee = pickMatrixCombinedFee(t, z, data.rows, data.zincHeaders);
+        const feeTables = buildThicknessAndZincFees(data.rows, data.zincHeaders);
+        // 厚度优先用表中明确规则（如 0.5+160），未识别到时再退回矩阵推导
+        const thicknessSource = data.thicknessRules.length ? data.thicknessRules : feeTables.thicknessRules;
+        const thkFee = pickPointFee(t, thicknessSource, "厚度");
+        // 锌层加价按用户定义直接取厚度/锌层交叉点值
+        const zincFee = pickMatrixCombinedFee(t, z, data.rows, data.zincHeaders);
         const wFee = pickFee(w, data.widthRules, "宽度");
 
-        const total = base + matrixFee + wFee;
+        const total = base + thkFee + zincFee + wFee;
         el.finalPrice.textContent = total.toFixed(2);
         el.baseOut.textContent = base.toFixed(2);
-        el.thkOut.textContent = matrixFee.toFixed(2);
-        el.zincOut.textContent = "0.00";
+        el.thkOut.textContent = thkFee.toFixed(2);
+        el.zincOut.textContent = zincFee.toFixed(2);
         el.widthOut.textContent = wFee.toFixed(2);
       } catch (err) {
         el.formError.textContent = err.message;
