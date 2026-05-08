@@ -1,3 +1,0 @@
-﻿Create standalone galvanized quote calculator page.
-
-Add a browser-based pricing tool with editable base price and surcharge tables for thickness, zinc coating, and width.
