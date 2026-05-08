@@ -656,14 +656,21 @@
       }
 
       try {
+        const material = el.materialType.value;
         const data = getCurrentMaterialData();
         const feeTables = buildThicknessAndZincFees(data.rows, data.zincHeaders);
         // 厚度优先用表中明确规则（如 0.5+160），未识别到时再退回矩阵推导
         const thicknessSource = data.thicknessRules.length ? data.thicknessRules : feeTables.thicknessRules;
-        const thkFee = pickPointFee(t, thicknessSource, "厚度");
+        let thkFee = pickPointFee(t, thicknessSource, "厚度");
         // 锌层加价按用户定义直接取厚度/锌层交叉点值
-        const zincFee = pickMatrixCombinedFee(t, z, data.rows, data.zincHeaders);
+        let zincFee = pickMatrixCombinedFee(t, z, data.rows, data.zincHeaders);
         const wFee = pickFee(w, data.widthRules, "宽度");
+
+        // 业务特例：镀锌/锌铝镁锌层40g以内不加价；厚度1.0以上不加价
+        if (material === "galvanized" || material === "zincMagnesium") {
+          if (z <= 40) zincFee = 0;
+          if (t >= 1.0) thkFee = 0;
+        }
 
         const total = base + thkFee + zincFee + wFee;
         el.finalPrice.textContent = total.toFixed(2);
