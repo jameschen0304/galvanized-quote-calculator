@@ -1,0 +1,377 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>镀锌报价计算器</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f7f8fa;
+      --card: #ffffff;
+      --line: #d9dde5;
+      --text: #1f2a37;
+      --sub: #5c6675;
+      --brand: #1166ee;
+      --brand-weak: #edf3ff;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Microsoft YaHei", "PingFang SC", Arial, sans-serif;
+      color: var(--text);
+      background: var(--bg);
+    }
+    .wrap {
+      max-width: 1100px;
+      margin: 24px auto;
+      padding: 0 16px 28px;
+    }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 16px;
+      margin-bottom: 14px;
+    }
+    h1 {
+      margin: 0 0 12px;
+      font-size: 24px;
+    }
+    h2 {
+      margin: 0 0 10px;
+      font-size: 18px;
+    }
+    .muted { color: var(--sub); font-size: 13px; }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(130px, 1fr));
+      gap: 10px;
+    }
+    label {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      font-size: 13px;
+      color: var(--sub);
+    }
+    input, select, textarea, button {
+      font: inherit;
+    }
+    input, textarea {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 8px 10px;
+      color: var(--text);
+      background: #fff;
+    }
+    textarea {
+      width: 100%;
+      min-height: 140px;
+      resize: vertical;
+      line-height: 1.5;
+    }
+    .btns {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-top: 10px;
+    }
+    button {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 8px 12px;
+      cursor: pointer;
+      background: #fff;
+    }
+    button.primary {
+      border-color: var(--brand);
+      background: var(--brand);
+      color: #fff;
+    }
+    .result {
+      background: var(--brand-weak);
+      border: 1px solid #c8dbff;
+      border-radius: 10px;
+      padding: 12px;
+      line-height: 1.7;
+    }
+    .result .price {
+      font-size: 24px;
+      font-weight: 700;
+      color: #0f4bc5;
+    }
+    .error {
+      margin-top: 8px;
+      color: #b00020;
+      font-size: 13px;
+      white-space: pre-wrap;
+    }
+    .hint {
+      margin-top: 8px;
+      font-size: 12px;
+      color: var(--sub);
+      line-height: 1.6;
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card">
+      <h1>镀锌报价计算器（简版）</h1>
+      <p class="muted">规则：最终报价 = 基价 + 厚度加价 + 锌层加价 + 宽度加价；若输入落在两档之间，取加价更高的一档。</p>
+    </div>
+
+    <div class="card">
+      <h2>规格输入</h2>
+      <div class="grid">
+        <label>基价（元/吨）
+          <input id="basePrice" type="number" step="0.01" value="4200" />
+        </label>
+        <label>厚度（mm）
+          <input id="thickness" type="number" step="0.001" value="0.37" />
+        </label>
+        <label>锌层（g/㎡）
+          <input id="zinc" type="number" step="1" value="100" />
+        </label>
+        <label>宽度（mm）
+          <input id="width" type="number" step="1" value="1219" />
+        </label>
+      </div>
+      <div class="btns">
+        <button id="calcBtn" class="primary">计算报价</button>
+      </div>
+      <div class="error" id="formError"></div>
+    </div>
+
+    <div class="card">
+      <h2>加价表维护（可手动改）</h2>
+      <p class="muted">每行格式：最小值,最大值,加价。示例：0.35,0.39,120。最后一行可用很大值做上限（如 9999）。</p>
+      <label>厚度加价表（mm）
+        <textarea id="thicknessTable"></textarea>
+      </label>
+      <label>锌层加价表（g/㎡）
+        <textarea id="zincTable"></textarea>
+      </label>
+      <label>宽度加价表（mm）
+        <textarea id="widthTable"></textarea>
+      </label>
+      <div class="btns">
+        <button id="saveBtn" class="primary">保存加价表到浏览器</button>
+        <button id="resetBtn">恢复示例数据</button>
+      </div>
+      <div class="hint">
+        - 区间按“最小值 ≤ 输入值 &lt; 最大值”命中。<br />
+        - 输入值在两档边界附近时，为满足“取加价高的”，程序会在所有可能命中候选中取最大加价。<br />
+        - 当前版本不含附加项、不乘吨位。
+      </div>
+      <div class="error" id="tableError"></div>
+    </div>
+
+    <div class="card">
+      <h2>计算结果</h2>
+      <div class="result" id="resultBox">
+        <div>最终报价（元/吨）：<span class="price" id="finalPrice">-</span></div>
+        <div>基价：<span id="baseOut">-</span></div>
+        <div>厚度加价：<span id="thkOut">-</span></div>
+        <div>锌层加价：<span id="zincOut">-</span></div>
+        <div>宽度加价：<span id="widthOut">-</span></div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const STORAGE_KEY = "gz_quote_tables_v1";
+
+    const defaults = {
+      thickness: [
+        "0.30,0.35,180",
+        "0.35,0.40,120",
+        "0.40,0.50,60",
+        "0.50,9999,0"
+      ].join("\n"),
+      zinc: [
+        "0,80,0",
+        "80,120,120",
+        "120,180,220",
+        "180,9999,320"
+      ].join("\n"),
+      width: [
+        "0,900,200",
+        "900,1000,150",
+        "1000,1150,120",
+        "1150,1201,100",
+        "1201,1221,30",
+        "1221,1250,100",
+        "1250,9999,0"
+      ].join("\n")
+    };
+
+    const el = {
+      basePrice: document.getElementById("basePrice"),
+      thickness: document.getElementById("thickness"),
+      zinc: document.getElementById("zinc"),
+      width: document.getElementById("width"),
+      thkTable: document.getElementById("thicknessTable"),
+      zincTable: document.getElementById("zincTable"),
+      widthTable: document.getElementById("widthTable"),
+      calcBtn: document.getElementById("calcBtn"),
+      saveBtn: document.getElementById("saveBtn"),
+      resetBtn: document.getElementById("resetBtn"),
+      formError: document.getElementById("formError"),
+      tableError: document.getElementById("tableError"),
+      finalPrice: document.getElementById("finalPrice"),
+      baseOut: document.getElementById("baseOut"),
+      thkOut: document.getElementById("thkOut"),
+      zincOut: document.getElementById("zincOut"),
+      widthOut: document.getElementById("widthOut")
+    };
+
+    function loadTablesToInputs() {
+      let source = defaults;
+      try {
+        const saved = localStorage.getItem(STORAGE_KEY);
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          if (parsed.thickness && parsed.zinc && parsed.width) source = parsed;
+        }
+      } catch (_) {}
+      el.thkTable.value = source.thickness;
+      el.zincTable.value = source.zinc;
+      el.widthTable.value = source.width;
+    }
+
+    function parseLines(raw, tableName) {
+      const rows = raw
+        .split(/\r?\n/)
+        .map((s) => s.trim())
+        .filter(Boolean);
+
+      if (!rows.length) {
+        throw new Error(`${tableName}不能为空`);
+      }
+
+      const result = rows.map((row, i) => {
+        const parts = row.split(",").map((v) => v.trim());
+        if (parts.length !== 3) {
+          throw new Error(`${tableName}第 ${i + 1} 行格式错误，应为“最小值,最大值,加价”`);
+        }
+        const [min, max, fee] = parts.map(Number);
+        if ([min, max, fee].some((n) => Number.isNaN(n))) {
+          throw new Error(`${tableName}第 ${i + 1} 行包含非数字`);
+        }
+        if (max <= min) {
+          throw new Error(`${tableName}第 ${i + 1} 行最大值必须大于最小值`);
+        }
+        return { min, max, fee };
+      });
+
+      return result;
+    }
+
+    function pickFee(value, rules, name) {
+      const exactHits = rules.filter((r) => value >= r.min && value < r.max);
+      if (exactHits.length > 0) {
+        return Math.max(...exactHits.map((r) => r.fee));
+      }
+
+      // 不在任何区间时，按“更高加价优先”取临近候选的最大加价
+      const candidates = rules
+        .map((r) => {
+          const dist = value < r.min ? r.min - value : value - r.max;
+          return { dist, fee: r.fee };
+        })
+        .sort((a, b) => a.dist - b.dist);
+
+      if (!candidates.length) {
+        throw new Error(`${name}没有可用规则`);
+      }
+
+      const minDist = candidates[0].dist;
+      const sameDist = candidates.filter((c) => c.dist === minDist);
+      return Math.max(...sameDist.map((c) => c.fee));
+    }
+
+    function readTables() {
+      return {
+        thicknessRules: parseLines(el.thkTable.value, "厚度加价表"),
+        zincRules: parseLines(el.zincTable.value, "锌层加价表"),
+        widthRules: parseLines(el.widthTable.value, "宽度加价表")
+      };
+    }
+
+    function saveTables() {
+      el.tableError.textContent = "";
+      try {
+        readTables();
+        localStorage.setItem(
+          STORAGE_KEY,
+          JSON.stringify({
+            thickness: el.thkTable.value.trim(),
+            zinc: el.zincTable.value.trim(),
+            width: el.widthTable.value.trim()
+          })
+        );
+        el.tableError.style.color = "#166534";
+        el.tableError.textContent = "已保存。";
+      } catch (err) {
+        el.tableError.style.color = "#b00020";
+        el.tableError.textContent = err.message;
+      }
+    }
+
+    function resetTables() {
+      el.thkTable.value = defaults.thickness;
+      el.zincTable.value = defaults.zinc;
+      el.widthTable.value = defaults.width;
+      localStorage.removeItem(STORAGE_KEY);
+      el.tableError.style.color = "#166534";
+      el.tableError.textContent = "已恢复示例数据。";
+    }
+
+    function calc() {
+      el.formError.textContent = "";
+      el.tableError.textContent = "";
+      el.tableError.style.color = "#b00020";
+
+      const base = Number(el.basePrice.value);
+      const t = Number(el.thickness.value);
+      const z = Number(el.zinc.value);
+      const w = Number(el.width.value);
+      if ([base, t, z, w].some((n) => Number.isNaN(n))) {
+        el.formError.textContent = "请输入有效数字。";
+        return;
+      }
+
+      let tables;
+      try {
+        tables = readTables();
+      } catch (err) {
+        el.tableError.textContent = err.message;
+        return;
+      }
+
+      try {
+        const tFee = pickFee(t, tables.thicknessRules, "厚度");
+        const zFee = pickFee(z, tables.zincRules, "锌层");
+        const wFee = pickFee(w, tables.widthRules, "宽度");
+
+        const total = base + tFee + zFee + wFee;
+        el.finalPrice.textContent = total.toFixed(2);
+        el.baseOut.textContent = base.toFixed(2);
+        el.thkOut.textContent = tFee.toFixed(2);
+        el.zincOut.textContent = zFee.toFixed(2);
+        el.widthOut.textContent = wFee.toFixed(2);
+      } catch (err) {
+        el.formError.textContent = err.message;
+      }
+    }
+
+    loadTablesToInputs();
+    calc();
+    el.calcBtn.addEventListener("click", calc);
+    el.saveBtn.addEventListener("click", saveTables);
+    el.resetBtn.addEventListener("click", resetTables);
+  </script>
+</body>
+</html>
