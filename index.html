@@ -161,7 +161,7 @@
       </div>
       <div class="hint">
         - 支持：镀锌 / 镀铝锌 / 锌铝镁 三个 sheet 自动识别。<br />
-        - 组距按 厚度 × 锌层 从矩阵取值；宽度按规则字符串解析（如 900-970+150、1000+0）。<br />
+        - 组距=厚度加价；锌层加价单独计算；宽度按规则字符串解析（如 900-970+150、1000+0）。<br />
         - 若输入落在两档之间，按你要求取加价更高的值。
       </div>
       <div class="error" id="tableError"></div>
@@ -173,7 +173,8 @@
       <div class="result" id="resultBox">
         <div>最终报价（元/吨）：<span class="price" id="finalPrice">-</span></div>
         <div>基价：<span id="baseOut">-</span></div>
-        <div>组距加价（厚度×锌层）：<span id="thkOut">-</span></div>
+        <div>组距加价（厚度）：<span id="thkOut">-</span></div>
+        <div>锌层加价：<span id="zincOut">-</span></div>
         <div>宽度加价：<span id="widthOut">-</span></div>
       </div>
     </div>
@@ -257,6 +258,7 @@
       finalPrice: document.getElementById("finalPrice"),
       baseOut: document.getElementById("baseOut"),
       thkOut: document.getElementById("thkOut"),
+      zincOut: document.getElementById("zincOut"),
       widthOut: document.getElementById("widthOut")
     };
 
@@ -345,23 +347,57 @@
       return [lower, upper];
     }
 
-    function pickMatrixFee(thickness, zinc, matrixRows, zincHeaders) {
-      const tValues = matrixRows.map((r) => r.thickness).sort((a, b) => a - b);
-      const zValues = [...zincHeaders].sort((a, b) => a - b);
-      const tCandidates = pickNeighborValues(thickness, tValues);
-      const zCandidates = pickNeighborValues(zinc, zValues);
+    function buildThicknessAndZincFees(matrixRows, zincHeaders) {
+      const sortedRows = [...matrixRows].sort((a, b) => a.thickness - b.thickness);
+      const sortedZinc = [...zincHeaders].sort((a, b) => a - b);
+      const minRow = sortedRows[0];
 
+      const getCell = (row, z) => {
+        const idx = zincHeaders.indexOf(z);
+        return idx >= 0 ? row.fees[idx] : null;
+      };
+
+      const minZ = sortedZinc[0];
+      const baseCell = getCell(minRow, minZ);
+      if (!Number.isFinite(baseCell)) {
+        throw new Error("无法从矩阵基准单元格解析厚度/锌层加价");
+      }
+
+      const thicknessRules = sortedRows
+        .map((row) => {
+          const v = getCell(row, minZ);
+          if (!Number.isFinite(v)) return null;
+          return { value: row.thickness, fee: v - baseCell };
+        })
+        .filter(Boolean);
+
+      const zincRules = sortedZinc
+        .map((z) => {
+          const v = getCell(minRow, z);
+          if (!Number.isFinite(v)) return null;
+          return { value: z, fee: v };
+        })
+        .filter(Boolean);
+
+      if (!thicknessRules.length || !zincRules.length) {
+        throw new Error("未能解析出厚度或锌层加价档");
+      }
+
+      return { thicknessRules, zincRules };
+    }
+
+    function pickPointFee(inputValue, pointRules, name) {
+      const values = pointRules.map((r) => r.value).sort((a, b) => a - b);
+      const candidates = pickNeighborValues(inputValue, values);
       const fees = [];
-      for (const t of tCandidates) {
-        const row = matrixRows.find((r) => r.thickness === t);
-        if (!row) continue;
-        for (const z of zCandidates) {
-          const zi = zValues.indexOf(z);
-          const fee = row.fees[zi];
-          if (typeof fee === "number" && Number.isFinite(fee)) fees.push(fee);
+      for (const v of candidates) {
+        for (const rule of pointRules) {
+          if (rule.value === v) fees.push(rule.fee);
         }
       }
-      if (!fees.length) throw new Error("组距矩阵没有匹配到可用加价值");
+      if (!fees.length) {
+        throw new Error(`${name}没有可用规则`);
+      }
       return Math.max(...fees);
     }
 
@@ -548,13 +584,16 @@
 
       try {
         const data = getCurrentMaterialData();
-        const groupFee = pickMatrixFee(t, z, data.rows, data.zincHeaders);
+        const feeTables = buildThicknessAndZincFees(data.rows, data.zincHeaders);
+        const thkFee = pickPointFee(t, feeTables.thicknessRules, "厚度");
+        const zincFee = pickPointFee(z, feeTables.zincRules, "锌层");
         const wFee = pickFee(w, data.widthRules, "宽度");
 
-        const total = base + groupFee + wFee;
+        const total = base + thkFee + zincFee + wFee;
         el.finalPrice.textContent = total.toFixed(2);
         el.baseOut.textContent = base.toFixed(2);
-        el.thkOut.textContent = groupFee.toFixed(2);
+        el.thkOut.textContent = thkFee.toFixed(2);
+        el.zincOut.textContent = zincFee.toFixed(2);
         el.widthOut.textContent = wFee.toFixed(2);
       } catch (err) {
         el.formError.textContent = err.message;
