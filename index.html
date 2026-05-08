@@ -152,28 +152,20 @@
     </div>
 
     <div class="card">
-      <h2>加价表维护（可手动改）</h2>
-      <p class="muted">当前编辑品类：<span id="currentMaterialName">镀锌</span></p>
-      <p class="muted">每行格式：最小值,最大值,加价。示例：0.35,0.39,120。最后一行可用很大值做上限（如 9999）。</p>
-      <label>厚度加价表（mm）
-        <textarea id="thicknessTable"></textarea>
-      </label>
-      <label>锌层加价表（g/㎡）
-        <textarea id="zincTable"></textarea>
-      </label>
-      <label>宽度加价表（mm）
-        <textarea id="widthTable"></textarea>
-      </label>
+      <h2>Excel 导入加价表</h2>
+      <p class="muted">上传你给我的报价 Excel，我会自动解析三种品类的组距矩阵与宽度加价规则，不需要手动填。</p>
       <div class="btns">
-        <button id="saveBtn" class="primary">保存加价表到浏览器</button>
-        <button id="resetBtn">恢复示例数据</button>
+        <input id="excelFile" type="file" accept=".xlsx,.xls" />
+        <button id="importBtn" class="primary">导入并解析</button>
+        <button id="clearBtn">清除已导入数据</button>
       </div>
       <div class="hint">
-        - 区间按“最小值 ≤ 输入值 &lt; 最大值”命中。<br />
-        - 输入值在两档边界附近时，为满足“取加价高的”，程序会在所有可能命中候选中取最大加价。<br />
-        - 当前版本不含附加项、不乘吨位。
+        - 支持：镀锌 / 镀铝锌 / 锌铝镁 三个 sheet 自动识别。<br />
+        - 组距按 厚度 × 锌层 从矩阵取值；宽度按规则字符串解析（如 900-970+150、1000+0）。<br />
+        - 若输入落在两档之间，按你要求取加价更高的值。
       </div>
       <div class="error" id="tableError"></div>
+      <div class="hint" id="parseSummary"></div>
     </div>
 
     <div class="card">
@@ -181,15 +173,15 @@
       <div class="result" id="resultBox">
         <div>最终报价（元/吨）：<span class="price" id="finalPrice">-</span></div>
         <div>基价：<span id="baseOut">-</span></div>
-        <div>厚度加价：<span id="thkOut">-</span></div>
-        <div>锌层加价：<span id="zincOut">-</span></div>
+        <div>组距加价（厚度×锌层）：<span id="thkOut">-</span></div>
         <div>宽度加价：<span id="widthOut">-</span></div>
       </div>
     </div>
   </div>
 
+  <script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
   <script>
-    const STORAGE_KEY = "steel_quote_tables_v2";
+    const STORAGE_KEY = "steel_quote_tables_v3";
 
     const materialNames = {
       galvanized: "镀锌",
@@ -197,43 +189,32 @@
       zincMagnesium: "锌铝镁"
     };
 
-    const defaultsByMaterial = {
+    const defaultParsedData = {
       galvanized: {
-        thickness: [
-          "0.30,0.35,180",
-          "0.35,0.40,120",
-          "0.40,0.50,60",
-          "0.50,9999,0"
-        ].join("\n"),
-        zinc: [
-          "0,80,0",
-          "80,120,120",
-          "120,180,220",
-          "180,9999,320"
-        ].join("\n"),
+        zincHeaders: [45, 60, 80, 100, 120, 150, 180, 200],
+        rows: [
+          { thickness: 0.3, fees: [60, 240, 480, 710, 950, 1350, 1720, 1960] },
+          { thickness: 0.35, fees: [50, 200, 400, 600, 790, 1130, 1430, 1640] },
+          { thickness: 0.4, fees: [50, 170, 340, 510, 680, 970, 1230, 1400] },
+          { thickness: 0.5, fees: [40, 140, 270, 400, 540, 750, 960, 1090] }
+        ],
         width: [
-          "0,900,200",
+          "0,900,180",
           "900,1000,150",
-          "1000,1150,120",
-          "1150,1201,100",
-          "1201,1221,30",
+          "1000,1200,100",
+          "1200,1221,30",
           "1221,1250,100",
           "1250,9999,0"
         ].join("\n")
       },
       aluzinc: {
-        thickness: [
-          "0.20,0.30,220",
-          "0.30,0.40,140",
-          "0.40,0.60,70",
-          "0.60,9999,0"
-        ].join("\n"),
-        zinc: [
-          "0,80,0",
-          "80,120,100",
-          "120,180,190",
-          "180,9999,280"
-        ].join("\n"),
+        zincHeaders: [30, 50, 80, 100, 120, 150, 180, 200],
+        rows: [
+          { thickness: 0.2, fees: [180, 540, 1200, 1590, 2120, 2930, 3860, 4780] },
+          { thickness: 0.25, fees: [150, 430, 930, 1230, 1610, 2200, 2850, 3480] },
+          { thickness: 0.35, fees: [110, 310, 640, 850, 1090, 1470, 1870, 2280] },
+          { thickness: 0.5, fees: [80, 220, 440, 580, 740, 980, 1230, 1520] }
+        ],
         width: [
           "0,900,180",
           "900,1000,140",
@@ -243,18 +224,13 @@
         ].join("\n")
       },
       zincMagnesium: {
-        thickness: [
-          "0.30,0.35,200",
-          "0.35,0.45,130",
-          "0.45,0.60,60",
-          "0.60,9999,0"
-        ].join("\n"),
-        zinc: [
-          "0,80,0",
-          "80,120,110",
-          "120,180,210",
-          "180,9999,300"
-        ].join("\n"),
+        zincHeaders: [45, 60, 80, 100, 120, 150, 180, 200],
+        rows: [
+          { thickness: 0.3, fees: [60, 220, 440, 660, 880, 1300, 1650, 1960] },
+          { thickness: 0.35, fees: [50, 190, 380, 560, 750, 1090, 1390, 1640] },
+          { thickness: 0.4, fees: [50, 170, 340, 500, 670, 940, 1190, 1400] },
+          { thickness: 0.5, fees: [40, 140, 270, 400, 540, 740, 940, 1090] }
+        ],
         width: [
           "0,900,160",
           "900,1000,130",
@@ -271,23 +247,20 @@
       thickness: document.getElementById("thickness"),
       zinc: document.getElementById("zinc"),
       width: document.getElementById("width"),
-      currentMaterialName: document.getElementById("currentMaterialName"),
-      thkTable: document.getElementById("thicknessTable"),
-      zincTable: document.getElementById("zincTable"),
-      widthTable: document.getElementById("widthTable"),
+      excelFile: document.getElementById("excelFile"),
+      importBtn: document.getElementById("importBtn"),
+      clearBtn: document.getElementById("clearBtn"),
+      parseSummary: document.getElementById("parseSummary"),
       calcBtn: document.getElementById("calcBtn"),
-      saveBtn: document.getElementById("saveBtn"),
-      resetBtn: document.getElementById("resetBtn"),
       formError: document.getElementById("formError"),
       tableError: document.getElementById("tableError"),
       finalPrice: document.getElementById("finalPrice"),
       baseOut: document.getElementById("baseOut"),
       thkOut: document.getElementById("thkOut"),
-      zincOut: document.getElementById("zincOut"),
       widthOut: document.getElementById("widthOut")
     };
 
-    function getStoredTables() {
+    function getStoredParsedData() {
       try {
         const saved = localStorage.getItem(STORAGE_KEY);
         if (saved) {
@@ -300,18 +273,6 @@
         return {};
       }
       return {};
-    }
-
-    function loadTablesToInputs() {
-      const material = el.materialType.value;
-      const stored = getStoredTables();
-      const fallback = defaultsByMaterial[material];
-      const source = stored[material] || fallback;
-
-      el.thkTable.value = source.thickness;
-      el.zincTable.value = source.zinc;
-      el.widthTable.value = source.width;
-      el.currentMaterialName.textContent = materialNames[material] || "";
     }
 
     function parseLines(raw, tableName) {
@@ -365,47 +326,210 @@
       return Math.max(...sameDist.map((c) => c.fee));
     }
 
-    function readTables() {
-      return {
-        thicknessRules: parseLines(el.thkTable.value, "厚度加价表"),
-        zincRules: parseLines(el.zincTable.value, "锌层加价表"),
-        widthRules: parseLines(el.widthTable.value, "宽度加价表")
-      };
+    function pickNeighborValues(value, sortedValues) {
+      if (!sortedValues.length) return [];
+      const exact = sortedValues.filter((v) => v === value);
+      if (exact.length) return exact;
+
+      let lower = null;
+      let upper = null;
+      for (const v of sortedValues) {
+        if (v < value) lower = v;
+        if (v > value) {
+          upper = v;
+          break;
+        }
+      }
+      if (lower === null) return [sortedValues[0]];
+      if (upper === null) return [sortedValues[sortedValues.length - 1]];
+      return [lower, upper];
     }
 
-    function saveTables() {
+    function pickMatrixFee(thickness, zinc, matrixRows, zincHeaders) {
+      const tValues = matrixRows.map((r) => r.thickness).sort((a, b) => a - b);
+      const zValues = [...zincHeaders].sort((a, b) => a - b);
+      const tCandidates = pickNeighborValues(thickness, tValues);
+      const zCandidates = pickNeighborValues(zinc, zValues);
+
+      const fees = [];
+      for (const t of tCandidates) {
+        const row = matrixRows.find((r) => r.thickness === t);
+        if (!row) continue;
+        for (const z of zCandidates) {
+          const zi = zValues.indexOf(z);
+          const fee = row.fees[zi];
+          if (typeof fee === "number" && Number.isFinite(fee)) fees.push(fee);
+        }
+      }
+      if (!fees.length) throw new Error("组距矩阵没有匹配到可用加价值");
+      return Math.max(...fees);
+    }
+
+    function parseWidthRuleString(text) {
+      const clean = String(text).replace(/\s+/g, "");
+      const mRange = clean.match(/^(\d+)-(\d+)\+(-?\d+(?:\.\d+)?)$/);
+      if (mRange) {
+        const min = Number(mRange[1]);
+        const max = Number(mRange[2]) + 1;
+        const fee = Number(mRange[3]);
+        if (min >= 500) return { min, max, fee };
+      }
+      const mSlash = clean.match(/^(\d+)\/(\d+)\+(-?\d+(?:\.\d+)?)$/);
+      if (mSlash) {
+        const min = Number(mSlash[1]);
+        const max = Number(mSlash[2]) + 1;
+        const fee = Number(mSlash[3]);
+        if (min >= 500) return { min, max, fee };
+      }
+      const mGe = clean.match(/^(\d+)\+(-?\d+(?:\.\d+)?)$/);
+      if (mGe) {
+        const min = Number(mGe[1]);
+        const fee = Number(mGe[2]);
+        if (min >= 500) return { min, max: 9999, fee };
+      }
+      return null;
+    }
+
+    function parseMatrixFromSheet(rows) {
+      let headerRowIdx = -1;
+      let zincCols = [];
+      let zincHeaders = [];
+
+      for (let i = 0; i < rows.length; i++) {
+        const row = rows[i] || [];
+        const cols = [];
+        for (let c = 0; c < row.length; c++) {
+          const v = Number(row[c]);
+          if (Number.isFinite(v) && v >= 20 && v <= 500) cols.push(c);
+        }
+        if (cols.length >= 6) {
+          const values = cols.map((c) => Number(row[c]));
+          const isAscending = values.every((v, idx) => idx === 0 || v >= values[idx - 1]);
+          if (isAscending && cols.length > zincCols.length) {
+            headerRowIdx = i;
+            zincCols = cols;
+            zincHeaders = values;
+          }
+        }
+      }
+      if (headerRowIdx < 0) throw new Error("未识别到锌层表头");
+
+      const rowsOut = [];
+      for (let r = headerRowIdx + 1; r < rows.length; r++) {
+        const row = rows[r] || [];
+        let thickness = null;
+        for (let c = 0; c <= zincCols[0]; c++) {
+          const v = Number(row[c]);
+          if (Number.isFinite(v) && v >= 0.1 && v <= 3) {
+            thickness = v;
+            break;
+          }
+        }
+        if (thickness === null) continue;
+
+        const fees = zincCols.map((c) => Number(row[c]));
+        const validCount = fees.filter((n) => Number.isFinite(n)).length;
+        if (validCount >= Math.ceil(zincCols.length * 0.6)) {
+          rowsOut.push({ thickness, fees: fees.map((n) => (Number.isFinite(n) ? n : null)) });
+        }
+      }
+      if (rowsOut.length < 2) throw new Error("未识别到足够厚度行");
+
+      return { zincHeaders, rows: rowsOut };
+    }
+
+    function parseWidthRulesFromSheet(rows) {
+      const found = [];
+      for (const row of rows) {
+        for (const cell of row || []) {
+          if (cell === null || cell === undefined) continue;
+          const parsed = parseWidthRuleString(cell);
+          if (parsed) found.push(parsed);
+        }
+      }
+      const unique = [];
+      const seen = new Set();
+      for (const it of found) {
+        const key = `${it.min}_${it.max}_${it.fee}`;
+        if (!seen.has(key)) {
+          seen.add(key);
+          unique.push(it);
+        }
+      }
+      unique.sort((a, b) => a.min - b.min);
+      if (!unique.length) return parseLines(defaultParsedData.galvanized.width, "默认宽度加价表");
+      return unique;
+    }
+
+    function mapSheetToMaterial(sheetName) {
+      const name = String(sheetName);
+      if (name.includes("镀铝锌")) return "aluzinc";
+      if (name.includes("锌铝镁") || name.includes("镁")) return "zincMagnesium";
+      if (name.includes("镀锌")) return "galvanized";
+      return null;
+    }
+
+    async function importExcel() {
       el.tableError.textContent = "";
+      el.parseSummary.textContent = "";
+      const file = el.excelFile.files[0];
+      if (!file) {
+        el.tableError.textContent = "请先选择 Excel 文件。";
+        return;
+      }
       try {
-        readTables();
-        const material = el.materialType.value;
-        const allSaved = getStoredTables();
+        const buf = await file.arrayBuffer();
+        const wb = XLSX.read(buf, { type: "array" });
+        const all = getStoredParsedData();
+        const lines = [];
 
-        allSaved[material] = {
-          thickness: el.thkTable.value.trim(),
-          zinc: el.zincTable.value.trim(),
-          width: el.widthTable.value.trim()
-        };
+        for (const sheetName of wb.SheetNames) {
+          const material = mapSheetToMaterial(sheetName);
+          if (!material) continue;
+          const sheet = wb.Sheets[sheetName];
+          const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, raw: true, defval: null });
+          const matrix = parseMatrixFromSheet(rows);
+          const widthRules = parseWidthRulesFromSheet(rows);
+          all[material] = {
+            zincHeaders: matrix.zincHeaders,
+            rows: matrix.rows,
+            widthRules
+          };
+          lines.push(`${materialNames[material]}：厚度${matrix.rows.length}档，锌层${matrix.zincHeaders.length}档，宽度规则${widthRules.length}条`);
+        }
 
-        localStorage.setItem(
-          STORAGE_KEY,
-          JSON.stringify(allSaved)
-        );
+        if (!lines.length) {
+          throw new Error("未识别到可用 sheet（需包含 镀锌/镀铝锌/锌铝镁 关键词）");
+        }
+
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(all));
         el.tableError.style.color = "#166534";
-        el.tableError.textContent = `已保存${materialNames[material]}加价表。`;
+        el.tableError.textContent = "导入成功。";
+        el.parseSummary.textContent = lines.join("；");
+        calc();
       } catch (err) {
         el.tableError.style.color = "#b00020";
-        el.tableError.textContent = err.message;
+        el.tableError.textContent = `导入失败：${err.message}`;
       }
     }
 
-    function resetTables() {
-      const material = el.materialType.value;
-      const allSaved = getStoredTables();
-      delete allSaved[material];
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(allSaved));
-      loadTablesToInputs();
+    function clearImported() {
+      localStorage.removeItem(STORAGE_KEY);
       el.tableError.style.color = "#166534";
-      el.tableError.textContent = `已恢复${materialNames[material]}示例数据。`;
+      el.tableError.textContent = "已清除导入数据，回到内置示例。";
+      el.parseSummary.textContent = "";
+      calc();
+    }
+
+    function getCurrentMaterialData() {
+      const material = el.materialType.value;
+      const all = getStoredParsedData();
+      const data = all[material] || defaultParsedData[material];
+      return {
+        zincHeaders: data.zincHeaders,
+        rows: data.rows,
+        widthRules: data.widthRules || parseLines(data.width, "宽度加价表")
+      };
     }
 
     function calc() {
@@ -422,39 +546,28 @@
         return;
       }
 
-      let tables;
       try {
-        tables = readTables();
-      } catch (err) {
-        el.tableError.textContent = err.message;
-        return;
-      }
+        const data = getCurrentMaterialData();
+        const groupFee = pickMatrixFee(t, z, data.rows, data.zincHeaders);
+        const wFee = pickFee(w, data.widthRules, "宽度");
 
-      try {
-        const tFee = pickFee(t, tables.thicknessRules, "厚度");
-        const zFee = pickFee(z, tables.zincRules, "锌层");
-        const wFee = pickFee(w, tables.widthRules, "宽度");
-
-        const total = base + tFee + zFee + wFee;
+        const total = base + groupFee + wFee;
         el.finalPrice.textContent = total.toFixed(2);
         el.baseOut.textContent = base.toFixed(2);
-        el.thkOut.textContent = tFee.toFixed(2);
-        el.zincOut.textContent = zFee.toFixed(2);
+        el.thkOut.textContent = groupFee.toFixed(2);
         el.widthOut.textContent = wFee.toFixed(2);
       } catch (err) {
         el.formError.textContent = err.message;
       }
     }
 
-    loadTablesToInputs();
     calc();
     el.materialType.addEventListener("change", () => {
-      loadTablesToInputs();
       calc();
     });
     el.calcBtn.addEventListener("click", calc);
-    el.saveBtn.addEventListener("click", saveTables);
-    el.resetBtn.addEventListener("click", resetTables);
+    el.importBtn.addEventListener("click", importExcel);
+    el.clearBtn.addEventListener("click", clearImported);
   </script>
 </body>
 </html>
