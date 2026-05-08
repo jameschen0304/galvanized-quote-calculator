@@ -440,6 +440,18 @@
       return null;
     }
 
+    function parseThicknessRuleString(text) {
+      const clean = String(text).replace(/\s+/g, "");
+      const m = clean.match(/^(\d+(?:\.\d+)?)\+(-?\d+(?:\.\d+)?)$/);
+      if (!m) return null;
+      const value = Number(m[1]);
+      const fee = Number(m[2]);
+      if (!Number.isFinite(value) || !Number.isFinite(fee)) return null;
+      // 厚度规则只接受合理厚度范围，避免把宽度规则误识别进来
+      if (value < 0.1 || value > 5) return null;
+      return { value, fee };
+    }
+
     function parseMatrixFromSheet(rows) {
       let headerRowIdx = -1;
       let zincCols = [];
@@ -511,6 +523,28 @@
       return unique;
     }
 
+    function parseThicknessRulesFromSheet(rows) {
+      const found = [];
+      for (const row of rows) {
+        for (const cell of row || []) {
+          if (cell === null || cell === undefined) continue;
+          const parsed = parseThicknessRuleString(cell);
+          if (parsed) found.push(parsed);
+        }
+      }
+      const unique = [];
+      const seen = new Set();
+      for (const it of found) {
+        const key = `${it.value}_${it.fee}`;
+        if (!seen.has(key)) {
+          seen.add(key);
+          unique.push(it);
+        }
+      }
+      unique.sort((a, b) => a.value - b.value);
+      return unique;
+    }
+
     function mapSheetToMaterial(sheetName) {
       const name = String(sheetName);
       if (name.includes("镀铝锌")) return "aluzinc";
@@ -540,12 +574,14 @@
           const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, raw: true, defval: null });
           const matrix = parseMatrixFromSheet(rows);
           const widthRules = parseWidthRulesFromSheet(rows);
+          const thicknessRules = parseThicknessRulesFromSheet(rows);
           all[material] = {
             zincHeaders: matrix.zincHeaders,
             rows: matrix.rows,
-            widthRules
+            widthRules,
+            thicknessRules
           };
-          lines.push(`${materialNames[material]}：厚度${matrix.rows.length}档，锌层${matrix.zincHeaders.length}档，宽度规则${widthRules.length}条`);
+          lines.push(`${materialNames[material]}：厚度规则${thicknessRules.length || "未识别"}，锌层${matrix.zincHeaders.length}档，宽度规则${widthRules.length}条`);
         }
 
         if (!lines.length) {
@@ -582,7 +618,8 @@
       return {
         zincHeaders: data.zincHeaders,
         rows: data.rows,
-        widthRules: data.widthRules || parseLines(data.width, "宽度加价表")
+        widthRules: data.widthRules || parseLines(data.width, "宽度加价表"),
+        thicknessRules: data.thicknessRules || []
       };
     }
 
@@ -601,7 +638,9 @@
       try {
         const data = getCurrentMaterialData();
         const feeTables = buildThicknessAndZincFees(data.rows, data.zincHeaders);
-        const thkFee = pickPointFee(t, feeTables.thicknessRules, "厚度");
+        // 厚度优先用表中明确规则（如 0.5+160），未识别到时再退回矩阵推导
+        const thicknessSource = data.thicknessRules.length ? data.thicknessRules : feeTables.thicknessRules;
+        const thkFee = pickPointFee(t, thicknessSource, "厚度");
         const zincFee = pickPointFee(z, feeTables.zincRules, "锌层");
         const wFee = pickFee(w, data.widthRules, "宽度");
 
